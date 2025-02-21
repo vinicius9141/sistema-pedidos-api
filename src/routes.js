@@ -1,7 +1,7 @@
 import db from './db.js';
 
 export default async function (fastify, options) {
-  // rotas para Produtos
+  // rotas produto
   fastify.get('/produtos', async (request, reply) => {
     const [rows] = await db.query('SELECT * FROM produtos');
     return rows;
@@ -39,7 +39,7 @@ export default async function (fastify, options) {
     return { message: 'Produto deletado' };
   });
 
-  // rotas para Clientes
+  // rota clientes
   fastify.get('/clientes', async (request, reply) => {
     const [rows] = await db.query('SELECT * FROM clientes');
     return rows;
@@ -77,229 +77,184 @@ export default async function (fastify, options) {
     return { message: 'Cliente deletado' };
   });
 
-    // listar todos os pedidos com o nome do cliente
+    // listar pedidos com o nome cliente
     fastify.get('/pedidos', async (request, reply) => {
       const [rows] = await db.query(`
-        SELECT p.id_pedido, p.data, c.nome AS cliente
+        SELECT p.id_pedido, p.data, p.id_cliente, c.nome AS cliente_nome
         FROM pedidos p
-        JOIN clientes c ON p.id_cliente = c.id_cliente
+        LEFT JOIN clientes c ON p.id_cliente = c.id_cliente
       `);
+     
       return rows;
     });
-  
-    // buscar um pedido pelo ID com detalhes do cliente
-    fastify.get('/pedidos/:id', async (request, reply) => {
-      const { id } = request.params;
-      
-      const [pedido] = await db.query(`
-          SELECT p.id_pedido, p.data, c.nome AS cliente
-          FROM pedidos p
-          JOIN clientes c ON p.id_cliente = c.id_cliente
-          WHERE p.id_pedido = ?
-      `, [id]);
-    
-      if (pedido.length === 0) {
-          return reply.status(404).send({ message: 'Pedido não encontrado' });
-      }
-    
-      // buscar itens do pedido
-      const [itens] = await db.query(`
-          SELECT pi.id_pedido_item, pi.qtde, pi.preco, pr.nome AS produto
-          FROM pedido_itens pi
-          JOIN produtos pr ON pi.id_produto = pr.id_produto
-          WHERE pi.id_pedido = ?
-      `, [id]);
-    
-      return { ...pedido[0], itens };
-    });
-    // criar um pedido
-    fastify.post('/pedidos', async (request, reply) => {
-      const { id_cliente, itens } = request.body;
-  
-      const [pedido] = await db.query(
-        'INSERT INTO pedidos (id_cliente) VALUES (?)',
-        [id_cliente]
-      );
-  
-      if (itens && itens.length) {
-        for (const item of itens) {
-          await db.query(
-            'INSERT INTO pedido_itens (id_pedido, id_produto, qtde, preco) VALUES (?, ?, ?, ?)',
-            [pedido.insertId, item.id_produto, item.qtde, item.preco]
-          );
-        }
-      }
-  
-      return { message: 'Pedido criado com sucesso!', id_pedido: pedido.insertId };
-    });
-  
-    // atualizar um pedido
-    fastify.put('/pedidos/:id', async (request, reply) => {
-      const { id } = request.params;
-      const { id_cliente } = request.body;
-  
-      const [result] = await db.query('UPDATE pedidos SET id_cliente = ? WHERE id_pedido = ?', [id_cliente, id]);
-  
-      return result.affectedRows
-        ? { message: 'Pedido atualizado', id, id_cliente }
-        : { message: 'Pedido não encontrado' };
-    });
-  
-    // excluir um pedido e seus itens
-    fastify.delete('/pedidos/:id', async (request, reply) => {
-      const { id } = request.params;
-  
-      await db.query('DELETE FROM pedido_itens WHERE id_pedido = ?', [id]);
-      const [result] = await db.query('DELETE FROM pedidos WHERE id_pedido = ?', [id]);
-  
-      return result.affectedRows
-        ? { message: 'Pedido deletado com sucesso' }
-        : { message: 'Pedido não encontrado' };
-    });
-  
-   // listar todos os pedidos com o nome do cliente
-fastify.get('/pedidos', async (request, reply) => {
-  const [rows] = await db.query(`
-      SELECT p.id_pedido, p.data, c.nome AS cliente
-      FROM pedidos p
-      JOIN clientes c ON p.id_cliente = c.id_cliente
-  `);
-  return rows;
-});
 
-// buscar um pedido pelo ID com detalhes do cliente e itens
-fastify.get('/pedidos/:id', async (request, reply) => {
-  const { id } = request.params;
-  
-  const [pedido] = await db.query(`
+  // buscar pedido ID com cliente
+  fastify.get('/pedidos/:id', async (request, reply) => {
+    const { id } = request.params;
+    const [rows] = await db.query(`
       SELECT p.id_pedido, p.data, c.nome AS cliente
       FROM pedidos p
       JOIN clientes c ON p.id_cliente = c.id_cliente
       WHERE p.id_pedido = ?
-  `, [id]);
+    `, [id]);
 
-  if (pedido.length === 0) {
-      return reply.status(404).send({ message: 'Pedido não encontrado' });
-  }
+    return rows.length ? rows[0] : { message: 'Pedido não encontrado' };
+  });
 
-  // buscar itens do pedido
-  const [itens] = await db.query(`
-      SELECT pi.id_pedido_item, pi.qtde, pi.preco, pr.nome AS produto
-      FROM pedido_itens pi
-      JOIN produtos pr ON pi.id_produto = pr.id_produto
-      WHERE pi.id_pedido = ?
-  `, [id]);
-
-  return { ...pedido[0], itens };
-});
-
-// criar um pedido com itens
-fastify.post('/pedidos', async (request, reply) => {
-  const { id_cliente, itens } = request.body;
-
-  if (!itens || !Array.isArray(itens) || itens.length === 0) {
-      return reply.status(400).send({ error: 'Itens do pedido são obrigatórios' });
-  }
-
-  try {
-      // criar o pedido
-      const [pedido] = await db.query(
-          'INSERT INTO pedidos (id_cliente) VALUES (?)',
-          [id_cliente]
+  // criar pedido
+  fastify.post('/pedidos', async (request, reply) => {
+    const { id_cliente, itens } = request.body;
+  
+    if (!id_cliente || !Array.isArray(itens) || itens.length === 0) {
+      return reply.status(400).send({ error: "Dados inválidos." });
+    }
+  
+    console.log("📥 Dados recebidos no backend:", JSON.stringify(request.body, null, 2));
+  
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+  
+      // insere pedido
+      const [pedidoResult] = await conn.query(
+        'INSERT INTO pedidos (id_cliente, data) VALUES (?, NOW())',
+        [id_cliente]
       );
-      const id_pedido = pedido.insertId;
-
-      // inserir os itens do pedido
+  
+      const id_pedido = pedidoResult.insertId;
+  
+      // insere os itens do pedido
       for (const item of itens) {
-          await db.query(
-              'INSERT INTO pedido_itens (id_pedido, id_produto, qtde, preco) VALUES (?, ?, ?, ?)',
-              [id_pedido, item.id_produto, item.qtde, item.preco]
-          );
+        const qtde = Number(item.qtde) > 0 ? Number(item.qtde) : 1; 
+
+  
+        await conn.query(
+          'INSERT INTO pedido_itens (id_pedido, id_produto, qtde, preco) VALUES (?, ?, ?, ?)',
+          [id_pedido, item.id_produto, qtde, item.preco]
+        );
       }
+  
+      await conn.commit();
+      return reply.send({ id_pedido });
+    } catch (error) {
+      await conn.rollback();
+      console.error("❌ Erro ao inserir pedido:", error);
+      return reply.status(500).send({ error: "Erro ao inserir pedido." });
+    } finally {
+      conn.release();
+    }
+  });
+  // atualiza pedido
+  fastify.put('/pedidos/:id', async (request, reply) => {
+    const connection = await db.getConnection();
+    await connection.beginTransaction();
+  
+    const id_pedido = request.params.id;
+    const { id_cliente, data, itens } = request.body;
+  
+    try {  
+      // atualiza dados do pedido
+      await connection.query(`
+        UPDATE pedidos SET id_cliente = ?, data = ? WHERE id_pedido = ?
+      `, [id_cliente, data, id_pedido]);
 
-      return reply.send({ message: 'Pedido criado com sucesso!', id_pedido, itens });
-  } catch (error) {
-      console.error('Erro ao criar pedido:', error);
-      return reply.status(500).send({ error: 'Erro interno ao criar pedido' });
-  }
-});
-// atualizar um pedido
-fastify.put('/pedidos/:id', async (request, reply) => {
-  const { id } = request.params;
-  const { id_cliente } = request.body;
+  
+      // remove itens antigos do pedido
+      await connection.query(`
+        DELETE FROM pedido_itens WHERE id_pedido = ?
+      `, [id_pedido]);
 
-  const [result] = await db.query('UPDATE pedidos SET id_cliente = ? WHERE id_pedido = ?', [id_cliente, id]);
+  
+      // insere novos itens do pedido
+      for (const item of itens) {
 
-  return result.affectedRows
-      ? { message: 'Pedido atualizado', id, id_cliente }
-      : { message: 'Pedido não encontrado' };
-});
+        await connection.query(`
+          INSERT INTO pedido_itens (id_pedido, id_produto, qtde, preco) 
+          VALUES (?, ?, ?, ?)
+        `, [id_pedido, item.id_produto, item.qtde, item.preco]);
+      }
+  
+  
+      await connection.commit();
+      return reply.status(200).send({ message: "Pedido atualizado com sucesso!" });
+  
+    } catch (error) {
+      await connection.rollback();
+      console.error("🚨 Erro ao atualizar pedido:", error);
+      return reply.status(500).send({ error: error.message });
+    } finally {
+      connection.release();
+    }
+  });
+  
 
-// excluir um pedido e seus itens
-fastify.delete('/pedidos/:id', async (request, reply) => {
-  const { id } = request.params;
+  // excluir um pedido e itens
+  fastify.delete('/pedidos/:id', async (request, reply) => {
+    const { id } = request.params;
 
-  await db.query('DELETE FROM pedido_itens WHERE id_pedido = ?', [id]);
-  const [result] = await db.query('DELETE FROM pedidos WHERE id_pedido = ?', [id]);
+    await db.query('DELETE FROM pedido_itens WHERE id_pedido = ?', [id]);
+    const [result] = await db.query('DELETE FROM pedidos WHERE id_pedido = ?', [id]);
 
-  return result.affectedRows
+    return result.affectedRows
       ? { message: 'Pedido deletado com sucesso' }
       : { message: 'Pedido não encontrado' };
-});
+  });
 
-// listar os itens de um pedido com detalhes do produto
-fastify.get('/pedidos/:id_pedido/itens', async (request, reply) => {
-  const { id_pedido } = request.params;
-
-  const [rows] = await db.query(`
-      SELECT pi.id_pedido_item, pi.qtde, pi.preco, pr.nome AS produto
+  // listar itens de pedido com detalhes do produto
+  fastify.get('/pedidos/:id_pedido/itens', async (request, reply) => {
+    const { id_pedido } = request.params;
+  
+    const [rows] = await db.query(`
+      SELECT pi.id_pedido_item, pi.id_produto, pi.qtde, pi.preco, 
+             pr.id_produto, pr.nome AS produto
       FROM pedido_itens pi
       JOIN produtos pr ON pi.id_produto = pr.id_produto
       WHERE pi.id_pedido = ?
-  `, [id_pedido]);
+    `, [id_pedido]);
+  
+    return rows;
+  });
 
-  return rows;
-});
+  // adicionar item ao pedido
+  fastify.post('/pedidos/:id_pedido/itens', async (request, reply) => {
+    const { id_pedido } = request.params;
+    const { id_produto, qtde, preco } = request.body;
 
-// aicionar item ao pedido
-fastify.post('/pedidos/:id_pedido/itens', async (request, reply) => {
-  const { id_pedido } = request.params;
-  const { id_produto, qtde, preco } = request.body;
-
-  const [result] = await db.query(
+    const [result] = await db.query(
       'INSERT INTO pedido_itens (id_pedido, id_produto, qtde, preco) VALUES (?, ?, ?, ?)',
       [id_pedido, id_produto, qtde, preco]
-  );
+    );
 
-  return { id_pedido_item: result.insertId, id_pedido, id_produto, qtde, preco };
-});
+    return { id_pedido_item: result.insertId, id_pedido, id_produto, qtde, preco };
+  });
 
-// atualizar item do pedido
-fastify.put('/pedidos/:id_pedido/itens/:id_item', async (request, reply) => {
-  const { id_pedido, id_item } = request.params;
-  const { id_produto, qtde, preco } = request.body;
+  // atualizar item do pedido
+  fastify.put('/pedidos/:id_pedido/itens/:id_item', async (request, reply) => {
+    const { id_pedido, id_item } = request.params;
+    const { id_produto, qtde, preco } = request.body;
 
-  const [result] = await db.query(
+    const [result] = await db.query(
       'UPDATE pedido_itens SET id_produto = ?, qtde = ?, preco = ? WHERE id_pedido_item = ? AND id_pedido = ?',
       [id_produto, qtde, preco, id_item, id_pedido]
-  );
+    );
 
-  return result.affectedRows
+    return result.affectedRows
       ? { message: 'Item atualizado', id_item, id_pedido, id_produto, qtde, preco }
       : { message: 'Item não encontrado' };
-});
+  });
 
-// remover item do pedido
-fastify.delete('/pedidos/:id_pedido/itens/:id_item', async (request, reply) => {
-  const { id_pedido, id_item } = request.params;
+  // remover item do pedido
+  fastify.delete('/pedidos/:id_pedido/itens/:id_item', async (request, reply) => {
+    const { id_pedido, id_item } = request.params;
 
-  const [result] = await db.query(
+    const [result] = await db.query(
       'DELETE FROM pedido_itens WHERE id_pedido_item = ? AND id_pedido = ?',
       [id_item, id_pedido]
-  );
+    );
 
-  return result.affectedRows
+    return result.affectedRows
       ? { message: 'Item de pedido removido' }
       : { message: 'Item não encontrado' };
-});
+  });
+
 }
